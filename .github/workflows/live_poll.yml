@@ -34,6 +34,7 @@ jobs:
       - run: pip install -r requirements.txt
       - run: python -m hotroute.live_poll --live ${{ github.event.inputs.week && format('--week {0}', github.event.inputs.week) || '' }}
         env:
+          PYTHONPATH: src
           MFL_LEAGUE_ID: ${{ secrets.MFL_LEAGUE_ID }}
           MFL_YEAR: ${{ secrets.MFL_YEAR }}
           MFL_HOST: ${{ secrets.MFL_HOST }}
