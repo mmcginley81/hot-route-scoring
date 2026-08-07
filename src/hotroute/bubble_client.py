@@ -15,7 +15,7 @@ class BubbleClient:
         self._session = requests.Session()
         self._session.headers["Authorization"] = f"Bearer {config.bubble_api_token}"
 
-    def list(self, obj_type: str, constraints: list | None = None, cursor: int = 0, limit: int = 100) -> dict:
+    def search(self, obj_type: str, constraints: list | None = None, cursor: int = 0, limit: int = 100) -> dict:
         """GET /api/1.1/obj/{type} — paginated search."""
         params = {"cursor": cursor, "limit": limit}
         if constraints:
@@ -25,7 +25,7 @@ class BubbleClient:
         return response.json()["response"]
 
     def find_one(self, obj_type: str, constraints: list) -> dict | None:
-        results = self.list(obj_type, constraints=constraints, limit=1)
+        results = self.search(obj_type, constraints=constraints, limit=1)
         matches = results["results"]
         return matches[0] if matches else None
 
@@ -34,7 +34,7 @@ class BubbleClient:
         results = []
         cursor = 0
         while True:
-            page = self.list(obj_type, constraints=constraints, cursor=cursor, limit=100)
+            page = self.search(obj_type, constraints=constraints, cursor=cursor, limit=100)
             results.extend(page["results"])
             if page.get("remaining", 0) <= 0:
                 break
