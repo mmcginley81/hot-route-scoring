@@ -1,0 +1,22 @@
+name: Reset weekly scores
+
+# On-demand only, by design — this zeros every player's this_week_score
+# league-wide, so it should never fire unattended. Trigger manually from
+# the Actions tab right before a new NFL week's games start.
+on:
+  workflow_dispatch:
+
+jobs:
+  reset:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - run: python -m hotroute.reset_week --live
+        env:
+          PYTHONPATH: src
+          BUBBLE_APP_URL: ${{ secrets.BUBBLE_APP_URL }}
+          BUBBLE_API_TOKEN: ${{ secrets.BUBBLE_API_TOKEN }}
