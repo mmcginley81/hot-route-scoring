@@ -5,3 +5,4 @@ __pycache__/
 venv/
 .DS_Store
 .claude/settings.local.json
+LAUNCH_READINESS.md
