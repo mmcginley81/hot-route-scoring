@@ -3,7 +3,7 @@ import sys
 
 from .bubble_client import BubbleClient
 from .config import Config
-from .mfl_client import MFLClient
+from .mfl_client import MFLClient, normalize_mfl_id
 
 # Hot Route only rosters these positions (confirmed against live Bubble
 # data — no K/DST records exist), so the MFL dictionary is filtered the
@@ -86,7 +86,12 @@ def run(live: bool) -> None:
     fill, fix, correct, unmatched, ambiguous = [], [], [], [], []
     for p in nfl_players:
         name = p.get("name")
-        current_id = p.get("MFL_PLAYER_ID")
+        # normalize_mfl_id() only when set — guards against Bubble ever
+        # holding a stray leading zero, not just a type mismatch, before
+        # comparing against mfl_id below. Guarded so a genuinely-missing
+        # field stays None, not normalize_mfl_id(None) -> "0".
+        raw_current_id = p.get("MFL_PLAYER_ID")
+        current_id = normalize_mfl_id(raw_current_id) if raw_current_id else None
         mfl_id, reason = match(name, exact, stripped, by_last)
 
         if mfl_id is None:

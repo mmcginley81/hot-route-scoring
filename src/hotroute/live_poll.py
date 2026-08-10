@@ -4,7 +4,7 @@ from datetime import date
 
 from .bubble_client import BubbleClient
 from .config import Config
-from .mfl_client import MFLClient
+from .mfl_client import MFLClient, normalize_mfl_id
 
 # MFL scores come back as strings parsed to float; ignore sub-tolerance
 # "changes" that are really just float noise, not a real score update.
@@ -52,12 +52,14 @@ def run(week: int, live: bool) -> None:
     bubble = BubbleClient(config)
 
     nfl_players = bubble.list_all("NFLPlayer")
-    by_mfl_id = {p["MFL_PLAYER_ID"]: p for p in nfl_players if p.get("MFL_PLAYER_ID")}
+    # normalize_mfl_id() here guards against Bubble ever holding a stray
+    # leading zero or similar formatting drift, not just a type mismatch.
+    by_mfl_id = {normalize_mfl_id(p["MFL_PLAYER_ID"]): p for p in nfl_players if p.get("MFL_PLAYER_ID")}
     print(f"loaded {len(nfl_players)} NFLPlayer records ({len(by_mfl_id)} with MFL_PLAYER_ID set)")
 
     changed = []  # (nflplayer_bubble_id, mfl_id, name, new_score)
     for mfl_id, info in live_scores.items():
-        player = by_mfl_id.get(mfl_id)
+        player = by_mfl_id.get(normalize_mfl_id(mfl_id))
         if not player:
             continue
         new_score = info["score"]

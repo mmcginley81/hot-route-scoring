@@ -4,15 +4,18 @@ import sys
 
 from .bubble_client import BubbleClient
 from .config import Config
-from .mfl_client import MFLClient
+from .mfl_client import MFLClient, normalize_mfl_id
 
 SYNC_WORKFLOW = "sync_all_teamplayer_scores_beta"
 
 
 def load_mfl_id_map(csv_path: str) -> dict:
-    """MFL_PLAYER_ID -> row, from the NFLPlayers_with_MFL_IDs.csv mapping file."""
+    """MFL_PLAYER_ID -> row, from the NFLPlayers_with_MFL_IDs.csv mapping
+    file. normalize_mfl_id() here matters more than it looks — this CSV is
+    hand-edited/exported from a spreadsheet, exactly the kind of file where
+    a leading zero or accidental numeric formatting could sneak in."""
     with open(csv_path, newline="", encoding="utf-8") as f:
-        return {row["MFL_PLAYER_ID"]: row for row in csv.DictReader(f)}
+        return {normalize_mfl_id(row["MFL_PLAYER_ID"]): row for row in csv.DictReader(f)}
 
 
 def run(week: int, live: bool) -> None:
@@ -25,7 +28,7 @@ def run(week: int, live: bool) -> None:
 
     matched, unmatched = [], []
     for entry in scores:
-        mfl_id = entry["id"]
+        mfl_id = normalize_mfl_id(entry["id"])
         if mfl_id in id_map:
             matched.append((mfl_id, id_map[mfl_id]["name"], entry["score"]))
         else:

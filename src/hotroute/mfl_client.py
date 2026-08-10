@@ -12,6 +12,21 @@ from .config import Config
 USER_AGENT = "Upload scores and get scores potentially/1.0"
 
 
+def normalize_mfl_id(raw) -> str:
+    """MFL_PLAYER_ID gets joined across MFL's API, Bubble, and hand-edited
+    CSV files with no shared canonical format — normalize defensively so a
+    stray leading zero (e.g. from a CSV reformatted by Excel/Sheets), a
+    float-like ".0" suffix (from an accidental numeric type somewhere), or
+    incidental whitespace doesn't cause a silent join mismatch. Real MFL
+    player ids are unpadded plain digit strings (e.g. "17071", "5848") in
+    every response seen in this project — never zero-padded like MFL's
+    franchise ids sometimes are, so stripping leading zeros is safe here."""
+    s = str(raw).strip()
+    if s.endswith(".0"):
+        s = s[:-2]
+    return s.lstrip("0") or "0"
+
+
 class MFLClient:
     def __init__(self, config: Config):
         self._config = config
@@ -64,7 +79,13 @@ class MFLClient:
     def get_player_scores(self, week: int) -> dict:
         """TYPE=playerScores — one week's scores, keyed by MFL player id."""
         data = self._get(self._league_base_url, {"TYPE": "playerScores", "L": self._league_id, "W": week})
-        return data["playerScores"]["playerScore"]
+        entries = data["playerScores"]["playerScore"]
+        # Every caller joins this against Bubble/CSV data by id — normalize
+        # here so a silent format mismatch can't cause a lookup to just
+        # quietly fail. See normalize_mfl_id() above for why.
+        for entry in entries:
+            entry["id"] = normalize_mfl_id(entry["id"])
+        return entries
 
     def get_live_scores(self, week: int) -> dict:
         """TYPE=liveScoring — in-progress per-player scores for a week,
@@ -90,7 +111,9 @@ class MFLClient:
                 if isinstance(players, dict):
                     players = [players]
                 for p in players:
-                    scores[p["id"]] = {
+                    # Same normalize_mfl_id() reasoning as get_player_scores
+                    # — this dict is joined against Bubble by key.
+                    scores[normalize_mfl_id(p["id"])] = {
                         "score": float(p["score"]),
                         "gameSecondsRemaining": p.get("gameSecondsRemaining"),
                     }
@@ -100,7 +123,10 @@ class MFLClient:
         """TYPE=players&DETAILS=1 — full player list, keyed by MFL player id."""
         data = self._get(self._global_base_url, {"TYPE": "players", "DETAILS": 1})
         players = data["players"]["player"]
-        return {p["id"]: p for p in players}
+        # Same normalize_mfl_id() reasoning as get_player_scores/
+        # get_live_scores — this is the dictionary backfill_mfl_ids.py
+        # joins against Bubble by key.
+        return {normalize_mfl_id(p["id"]): p for p in players}
 
     def get_franchise_ids(self) -> list[str]:
         """TYPE=league — every franchise id in the league."""
