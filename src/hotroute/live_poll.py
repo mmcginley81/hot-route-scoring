@@ -22,13 +22,23 @@ CHUNK_SIZE = 100
 SEASON_WEEK_1_START = date(2026, 9, 8)
 
 
-def current_nfl_week(today: date | None = None) -> int:
+def current_nfl_week(today: date | None = None) -> int | None:
     """No dependency on Bubble's admin.current_week (doesn't exist yet, and
     is Bubble's own concern) — the cron needs to self-determine the week
-    from the calendar, so this is Track B's own copy of that logic."""
+    from the calendar, so this is Track B's own copy of that logic.
+
+    Returns None before the season starts. Floor division on a negative
+    day-count silently rounds up to a false "week 1" otherwise — confirmed
+    live: the cron ran unattended every ~30 min for 11 days during the
+    2026 preseason and kept re-patching real 2025 week-1 test data into
+    this_week_score, since it always looked "different" from whatever a
+    manual test had just reset it to. An explicit --week still overrides
+    this (see main()) — this only gates the cron's own auto-computed default."""
     today = today or date.today()
     days_since_start = (today - SEASON_WEEK_1_START).days
-    return max(1, days_since_start // 7 + 1)
+    if days_since_start < 0:
+        return None
+    return days_since_start // 7 + 1
 
 
 def _chunks(items: list, size: int):
@@ -113,7 +123,13 @@ def main() -> None:
         help="actually diff against Bubble and PATCH changes (default: dry run, MFL only)",
     )
     args = parser.parse_args()
-    week = args.week if args.week is not None else current_nfl_week()
+    if args.week is not None:
+        week = args.week
+    else:
+        week = current_nfl_week()
+        if week is None:
+            print(f"season hasn't started yet (starts {SEASON_WEEK_1_START.isoformat()}) — nothing to poll, exiting")
+            return
     run(week, args.live)
 
 
