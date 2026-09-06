@@ -22,6 +22,10 @@ on:
       week:
         description: "NFL week (defaults to auto-computed from today's date if left blank)"
         required: false
+      debug_config:
+        description: "Print resolved non-secret config only (MFL_LEAGUE_ID/MFL_YEAR/MFL_HOST/BUBBLE_APP_URL) and skip the actual poll — no MFL or Bubble calls at all"
+        required: false
+        default: "false"
 
 jobs:
   poll:
@@ -32,7 +36,20 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -r requirements.txt
+      - name: Debug print resolved config (non-secret values only)
+        if: github.event.inputs.debug_config == 'true'
+        run: |
+          echo "MFL_LEAGUE_ID=$MFL_LEAGUE_ID"
+          echo "MFL_YEAR=$MFL_YEAR"
+          echo "MFL_HOST=$MFL_HOST"
+          echo "BUBBLE_APP_URL=$BUBBLE_APP_URL"
+        env:
+          MFL_LEAGUE_ID: ${{ secrets.MFL_LEAGUE_ID }}
+          MFL_YEAR: ${{ secrets.MFL_YEAR }}
+          MFL_HOST: ${{ secrets.MFL_HOST }}
+          BUBBLE_APP_URL: ${{ secrets.BUBBLE_APP_URL }}
       - run: python -m hotroute.live_poll --live ${{ github.event.inputs.week && format('--week {0}', github.event.inputs.week) || '' }}
+        if: github.event.inputs.debug_config != 'true'
         env:
           PYTHONPATH: src
           MFL_LEAGUE_ID: ${{ secrets.MFL_LEAGUE_ID }}
