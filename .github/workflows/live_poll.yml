@@ -36,13 +36,39 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -r requirements.txt
-      - name: Debug print resolved config (non-secret values only)
+      - name: Debug check resolved config (hash comparison only — GH masks raw secret values in logs, so this never prints them)
         if: github.event.inputs.debug_config == 'true'
         run: |
-          echo "MFL_LEAGUE_ID=$MFL_LEAGUE_ID"
-          echo "MFL_YEAR=$MFL_YEAR"
-          echo "MFL_HOST=$MFL_HOST"
-          echo "BUBBLE_APP_URL=$BUBBLE_APP_URL"
+          sha() { printf '%s' "$1" | sha256sum | cut -d' ' -f1; }
+          report() {
+            name="$1"; value="$2"; shift 2
+            if [ -z "$value" ]; then
+              echo "$name: (empty / not set)"
+              return
+            fi
+            h=$(sha "$value")
+            match=""
+            while [ "$#" -ge 2 ]; do
+              if [ "$h" = "$(sha "$2")" ]; then match="$1"; fi
+              shift 2
+            done
+            if [ -n "$match" ]; then
+              echo "$name: matches known value '$match'"
+            else
+              echo "$name: does NOT match any known candidate (sha256=$h)"
+            fi
+          }
+          report "MFL_LEAGUE_ID" "$MFL_LEAGUE_ID" \
+            "15952" "15952"
+          report "MFL_YEAR" "$MFL_YEAR" \
+            "2026 (desired prod)" "2026" \
+            "2025 (old/test)" "2025"
+          report "MFL_HOST" "$MFL_HOST" \
+            "www45.myfantasyleague.com" "www45.myfantasyleague.com" \
+            "api.myfantasyleague.com (generic default)" "api.myfantasyleague.com"
+          report "BUBBLE_APP_URL" "$BUBBLE_APP_URL" \
+            "https://hot-route.app (desired LIVE)" "https://hot-route.app" \
+            "https://hot-route.app/version-test (old/test)" "https://hot-route.app/version-test"
         env:
           MFL_LEAGUE_ID: ${{ secrets.MFL_LEAGUE_ID }}
           MFL_YEAR: ${{ secrets.MFL_YEAR }}
