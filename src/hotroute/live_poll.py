@@ -73,8 +73,11 @@ def run(week: int, live: bool) -> None:
         if not player:
             continue
         new_score = info["score"]
-        current_score = player.get("this_week_score") or 0.0
-        if abs(new_score - current_score) < SCORE_TOLERANCE:
+        current_score = player.get("this_week_score")
+        # None means the field has never been written (Bubble-blank, not a
+        # real 0) — always write once so it shows an explicit 0.0 instead of
+        # staying blank, even if the computed score happens to be 0 too.
+        if current_score is not None and abs(new_score - current_score) < SCORE_TOLERANCE:
             continue
         changed.append((player["_id"], mfl_id, player.get("name"), new_score))
 
@@ -82,29 +85,50 @@ def run(week: int, live: bool) -> None:
     for _, mfl_id, name, new_score in changed:
         print(f"  {name:25s} mfl_id={mfl_id:>8s} -> {new_score}")
 
-    if not changed:
-        print("nothing to write, done")
-        return
+    if changed:
+        for nflplayer_id, _, _, new_score in changed:
+            bubble.patch("NFLPlayer", nflplayer_id, {"this_week_score": new_score})
+        print(f"patched {len(changed)} NFLPlayer records")
 
-    for nflplayer_id, _, _, new_score in changed:
-        bubble.patch("NFLPlayer", nflplayer_id, {"this_week_score": new_score})
-    print(f"patched {len(changed)} NFLPlayer records")
+        score_by_nflplayer_id = {nflplayer_id: new_score for nflplayer_id, _, _, new_score in changed}
+        changed_ids = list(score_by_nflplayer_id.keys())
 
-    score_by_nflplayer_id = {nflplayer_id: new_score for nflplayer_id, _, _, new_score in changed}
-    changed_ids = list(score_by_nflplayer_id.keys())
-
-    team_players = []
-    for chunk in _chunks(changed_ids, CHUNK_SIZE):
-        team_players.extend(
-            bubble.list_all(
-                "TeamPlayer",
-                constraints=[{"key": "player", "constraint_type": "in", "value": chunk}],
+        team_players = []
+        for chunk in _chunks(changed_ids, CHUNK_SIZE):
+            team_players.extend(
+                bubble.list_all(
+                    "TeamPlayer",
+                    constraints=[{"key": "player", "constraint_type": "in", "value": chunk}],
+                )
             )
-        )
 
-    for tp in team_players:
-        bubble.patch("TeamPlayer", tp["_id"], {"thisWeekScore": score_by_nflplayer_id[tp["player"]]})
-    print(f"patched {len(team_players)} TeamPlayer records")
+        for tp in team_players:
+            bubble.patch("TeamPlayer", tp["_id"], {"thisWeekScore": score_by_nflplayer_id[tp["player"]]})
+        print(f"patched {len(team_players)} TeamPlayer records")
+    else:
+        print("no NFLPlayer scores changed since last poll")
+
+    # Catch-up pass, independent of the diff above: a TeamPlayer row created
+    # after the *last* time its player's score actually changed (e.g. a
+    # roster spot drafted mid-week for a player who's sitting flat at 0)
+    # never appears in `changed` and would otherwise stay Bubble-blank
+    # until that player's score eventually moves again — possibly never,
+    # for a bye/inactive player. Cheap because it's a server-side filtered
+    # query (thisWeekScore is_empty), not a full-table fetch.
+    blank_team_players = bubble.list_all(
+        "TeamPlayer", constraints=[{"key": "thisWeekScore", "constraint_type": "is_empty"}]
+    )
+    if blank_team_players:
+        by_nflplayer_id = {p["_id"]: p for p in nfl_players}
+        backfilled = 0
+        for tp in blank_team_players:
+            player = by_nflplayer_id.get(tp.get("player"))
+            score = player.get("this_week_score") if player else None
+            if score is None:
+                continue
+            bubble.patch("TeamPlayer", tp["_id"], {"thisWeekScore": score})
+            backfilled += 1
+        print(f"backfilled {backfilled} previously-blank TeamPlayer records (newly-created roster spots)")
 
 
 def main() -> None:
