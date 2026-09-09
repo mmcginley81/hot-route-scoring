@@ -4,23 +4,37 @@ import sys
 from .bubble_client import BubbleClient
 from .config import Config
 
-# Bubble backend workflow that recomputes bestball starter scores/positions
-# from current TeamPlayer data. Runs entirely inside Bubble — this script's
-# only job is to fire the trigger on a schedule.
-WORKFLOW = "calculate_starter_score"
+# Bubble backend workflow that recomputes bestball starter scores for one
+# Matchup (required "matchup" param). Its own steps already gate on
+# "Only when matchup's matchup_status is live", so this script only calls
+# it for matchups that are actually live — no point paying Bubble workload
+# for matchups nothing is scoring against.
+WORKFLOW = "calculate_starter_score_for_matchup"
 
 
 def run(live: bool) -> None:
     config = Config.from_env()
+    bubble = BubbleClient(config)
+
+    live_matchups = bubble.list_all(
+        "Matchup", constraints=[{"key": "matchup_status", "constraint_type": "equals", "value": "live"}]
+    )
+    print(f"{len(live_matchups)} live Matchup record(s) found")
 
     if not live:
-        print(f"dry run only — pass --live to actually trigger {WORKFLOW} in Bubble")
+        for m in live_matchups:
+            print(f"  would trigger {WORKFLOW} for matchup {m['_id']} (week {m.get('week')})")
+        print(f"\ndry run only — pass --live to actually trigger {WORKFLOW} for each")
         return
 
-    bubble = BubbleClient(config)
-    print(f"triggering {WORKFLOW}...")
-    result = bubble.trigger_workflow(WORKFLOW)
-    print(f"workflow result: {result}")
+    if not live_matchups:
+        print("nothing to do")
+        return
+
+    for m in live_matchups:
+        print(f"triggering {WORKFLOW} for matchup {m['_id']} (week {m.get('week')})...")
+        result = bubble.trigger_workflow(WORKFLOW, {"matchup": m["_id"]})
+        print(f"  result: {result}")
 
 
 def main() -> None:
