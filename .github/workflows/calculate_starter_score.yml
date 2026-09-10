@@ -1,18 +1,14 @@
 name: Calculate starter score
 
+# No schedule trigger — live_poll.py now triggers this same Bubble workflow
+# itself, scoped to only the matchups with an actual score change on each
+# poll (see live_poll.py's STARTER_SCORE_WORKFLOW block). Running this on
+# its own 5-min schedule too meant firing the workflow for every live
+# matchup unconditionally on every poll, which was the dominant Workflow
+# Unit cost in the whole pipeline. Kept as workflow_dispatch-only now: a
+# manual full-sweep safety net (e.g. if a Bubble edit or a bug in
+# live_poll's diff logic left a matchup's starter score stale).
 on:
-  # Every 5 min, Wed 12pm through Mon 11:30pm Pacific, skipping Tuesday
-  # entirely. Same widen-by-an-hour approach as live_poll.yml: boundaries
-  # are padded ~1hr on each side to cover both PDT (UTC-7) and PST (UTC-8)
-  # without maintaining separate DST-aware schedules.
-  #   - block 1: Wed 18:00-23:59 UTC — start of window (~Wed 10-11am Pacific)
-  #   - block 2: Thu-Mon, all day UTC — full local days, no partial edges
-  #   - block 3: Tue 00:00-08:59 UTC — tail end of Monday night Pacific
-  # Net effect: nothing runs from ~Tue 9am Pacific through Wed 11am Pacific.
-  schedule:
-    - cron: '*/5 18-23 * * 3'
-    - cron: '*/5 * * * 1,4,5,6,0'
-    - cron: '*/5 0-8 * * 2'
   workflow_dispatch:
 
 jobs:

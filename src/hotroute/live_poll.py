@@ -14,6 +14,11 @@ SCORE_TOLERANCE = 0.05
 # request — untested at higher counts, chunk defensively.
 CHUNK_SIZE = 100
 
+# Same Bubble backend workflow calculate_starter_score.py triggers — kept as
+# the same name/string here rather than importing it, since importing would
+# pull in that module's argparse/main() for no benefit.
+STARTER_SCORE_WORKFLOW = "calculate_starter_score_for_matchup"
+
 # The Tuesday immediately before 2026 week 1's slate (confirmed from the
 # real MFL/NFL schedule: week 1 runs Wed Sep 9 - Mon Sep 14, week 2 starts
 # Thu Sep 17). NFL weeks turn over on Tuesday, not on the week's own first
@@ -85,6 +90,8 @@ def run(week: int, live: bool) -> None:
     for _, mfl_id, name, new_score in changed:
         print(f"  {name:25s} mfl_id={mfl_id:>8s} -> {new_score}")
 
+    affected_fantasy_team_ids = set()
+
     if changed:
         for nflplayer_id, _, _, new_score in changed:
             bubble.patch("NFLPlayer", nflplayer_id, {"this_week_score": new_score})
@@ -104,6 +111,8 @@ def run(week: int, live: bool) -> None:
 
         for tp in team_players:
             bubble.patch("TeamPlayer", tp["_id"], {"thisWeekScore": score_by_nflplayer_id[tp["player"]]})
+            if tp.get("OnThisFantasyTeam"):
+                affected_fantasy_team_ids.add(tp["OnThisFantasyTeam"])
         print(f"patched {len(team_players)} TeamPlayer records")
     else:
         print("no NFLPlayer scores changed since last poll")
@@ -128,7 +137,36 @@ def run(week: int, live: bool) -> None:
                 continue
             bubble.patch("TeamPlayer", tp["_id"], {"thisWeekScore": score})
             backfilled += 1
+            if tp.get("OnThisFantasyTeam"):
+                affected_fantasy_team_ids.add(tp["OnThisFantasyTeam"])
         print(f"backfilled {backfilled} previously-blank TeamPlayer records (newly-created roster spots)")
+
+    # Trigger Bubble's bestball starter-score recompute only for matchups a
+    # FantasyTeam we just touched is actually playing in this week — not
+    # every live matchup on every poll. calculate_starter_score_for_matchup
+    # is a real Bubble backend workflow (its own search/loop/compute steps),
+    # which costs far more Workflow Units per call than the plain Data API
+    # GET/PATCH calls above, so firing it unconditionally for ~18-20 live
+    # matchups every 5-10 min was the dominant WU cost in this pipeline.
+    # Scoping it to only the matchups with an actual score change this poll
+    # cuts that down to roughly "one trigger per real scoring event."
+    if affected_fantasy_team_ids:
+        live_matchups = bubble.list_all(
+            "Matchup", constraints=[{"key": "matchup_status", "constraint_type": "equals", "value": "live"}]
+        )
+        affected_matchups = [
+            m
+            for m in live_matchups
+            if m.get("team_1") in affected_fantasy_team_ids or m.get("team_2") in affected_fantasy_team_ids
+        ]
+        for m in affected_matchups:
+            bubble.trigger_workflow(STARTER_SCORE_WORKFLOW, {"matchup": m["_id"]})
+        print(
+            f"triggered {STARTER_SCORE_WORKFLOW} for {len(affected_matchups)} affected "
+            f"live matchup(s) (of {len(live_matchups)} live)"
+        )
+    else:
+        print(f"no FantasyTeam scores changed — skipped {STARTER_SCORE_WORKFLOW} entirely this poll")
 
 
 def main() -> None:

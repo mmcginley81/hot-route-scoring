@@ -9,6 +9,14 @@ from .config import Config
 # "Only when matchup's matchup_status is live", so this script only calls
 # it for matchups that are actually live — no point paying Bubble workload
 # for matchups nothing is scoring against.
+#
+# This script is now a manual/occasional full-sweep tool, not the primary
+# driver — live_poll.py triggers this same workflow itself on every poll,
+# scoped to only matchups with an actual score change, which is far cheaper
+# in Workflow Units than this script's "every live matchup, unconditionally"
+# approach. Run this by hand (gh workflow run calculate_starter_score.yml)
+# if you suspect a matchup's starter score is stale and want to force a
+# full recompute across every live matchup.
 WORKFLOW = "calculate_starter_score_for_matchup"
 
 
