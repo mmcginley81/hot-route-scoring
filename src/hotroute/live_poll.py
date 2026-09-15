@@ -1,6 +1,7 @@
 import argparse
 import sys
-from datetime import date
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 
 from .bubble_client import BubbleClient
 from .config import Config
@@ -26,6 +27,12 @@ STARTER_SCORE_WORKFLOW = "calculate_starter_score_for_matchup"
 # that even though week 1 itself has an odd one-off Wednesday opener.
 SEASON_WEEK_1_START = date(2026, 9, 8)
 
+# All NFL scheduling (kickoff times, the Tuesday week-turnover boundary) is
+# inherently Pacific-anchored in this project — see the schedule facts
+# documented alongside SEASON_WEEK_1_START. current_nfl_week() must compute
+# "today" in this zone, not the runner's own system timezone.
+_PACIFIC = ZoneInfo("America/Los_Angeles")
+
 
 def current_nfl_week(today: date | None = None) -> int | None:
     """No dependency on Bubble's admin.current_week (doesn't exist yet, and
@@ -38,8 +45,21 @@ def current_nfl_week(today: date | None = None) -> int | None:
     2026 preseason and kept re-patching real 2025 week-1 test data into
     this_week_score, since it always looked "different" from whatever a
     manual test had just reset it to. An explicit --week still overrides
-    this (see main()) — this only gates the cron's own auto-computed default."""
-    today = today or date.today()
+    this (see main()) — this only gates the cron's own auto-computed default.
+
+    `today` must be computed in Pacific time, not the caller's system
+    timezone — GitHub Actions runners run in UTC, which flips to the next
+    calendar date at 5-6pm Pacific (depending on DST). Confirmed live: this
+    crossed a week boundary mid-game during week 1's Monday Night Football
+    (UTC already read Tuesday while it was still Monday evening Pacific),
+    so the cron queried MFL for week 2 (pregame, all-zero) instead of the
+    real in-progress week 1, diffed that against Bubble's real nonzero
+    scores, and mass-patched every live player down to 0 every ~3 min until
+    fixed. Any evening game can hit this UTC/Pacific mismatch, but only the
+    Monday-boundary day (Tue-anchored weeks: Mon is days_since_start % 7 ==
+    6) actually flips the *week number* wrong — other days just shift
+    days_since_start within the same week, which is harmless."""
+    today = today or datetime.now(_PACIFIC).date()
     days_since_start = (today - SEASON_WEEK_1_START).days
     if days_since_start < 0:
         return None
