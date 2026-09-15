@@ -1,6 +1,6 @@
 import argparse
 import sys
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from .bubble_client import BubbleClient
@@ -27,43 +27,65 @@ STARTER_SCORE_WORKFLOW = "calculate_starter_score_for_matchup"
 # that even though week 1 itself has an odd one-off Wednesday opener.
 SEASON_WEEK_1_START = date(2026, 9, 8)
 
-# All NFL scheduling (kickoff times, the Tuesday week-turnover boundary) is
+# All NFL scheduling (kickoff times, the week-turnover boundary) is
 # inherently Pacific-anchored in this project — see the schedule facts
-# documented alongside SEASON_WEEK_1_START. current_nfl_week() must compute
-# "today" in this zone, not the runner's own system timezone.
-_PACIFIC = ZoneInfo("America/Los_Angeles")
+# documented alongside SEASON_WEEK_1_START. Every turnover computation here
+# must use this zone, not the runner's own system timezone (see the
+# UTC-vs-Pacific bug note on current_nfl_week() below).
+PACIFIC = ZoneInfo("America/Los_Angeles")
+
+# Weeks actually turn over Wednesday at noon Pacific, not at the Tuesday
+# calendar-date boundary SEASON_WEEK_1_START marks — noon gives a full
+# buffer past Monday Night Football wrapping up (and past any post-game
+# stat corrections) while still landing well before that week's own
+# Wednesday-evening/Thursday slate. User-requested (2026-09-14): explicitly
+# wanted Wednesday, not Tuesday, as the actual cutover instant.
+WEEK_TURNOVER_HOUR = 12
 
 
-def current_nfl_week(today: date | None = None) -> int | None:
+def week_turnover(week: int) -> datetime:
+    """Wednesday noon Pacific that week `week` begins — one day after
+    SEASON_WEEK_1_START's Tuesday anchor, at WEEK_TURNOVER_HOUR. Shared by
+    current_nfl_week() (score attribution) and update_matchup_status.py
+    (upcoming/live/completed display) so both turn over at the same
+    instant — they used to disagree (Tuesday midnight vs Tuesday 5pm),
+    which was fine when that gap was only a few hours, but would leave a
+    real gap once the score-attribution turnover moved this much later:
+    matchup_status would flip to "completed" while live_poll.py was still
+    treating the matchup's week as current, and calculate_starter_score_for_matchup
+    (gated on matchup_status == "live") would stop being triggered for it
+    during that window."""
+    wednesday = SEASON_WEEK_1_START + timedelta(days=7 * (week - 1) + 1)
+    return datetime(wednesday.year, wednesday.month, wednesday.day, WEEK_TURNOVER_HOUR, tzinfo=PACIFIC)
+
+
+def current_nfl_week(now: datetime | None = None) -> int | None:
     """No dependency on Bubble's admin.current_week (doesn't exist yet, and
     is Bubble's own concern) — the cron needs to self-determine the week
     from the calendar, so this is Track B's own copy of that logic.
 
-    Returns None before the season starts. Floor division on a negative
-    day-count silently rounds up to a false "week 1" otherwise — confirmed
-    live: the cron ran unattended every ~30 min for 11 days during the
-    2026 preseason and kept re-patching real 2025 week-1 test data into
-    this_week_score, since it always looked "different" from whatever a
-    manual test had just reset it to. An explicit --week still overrides
-    this (see main()) — this only gates the cron's own auto-computed default.
+    Returns None before the season starts. An explicit --week still
+    overrides this (see main()) — this only gates the cron's own
+    auto-computed default.
 
-    `today` must be computed in Pacific time, not the caller's system
+    `now` must be computed in Pacific time, not the caller's system
     timezone — GitHub Actions runners run in UTC, which flips to the next
     calendar date at 5-6pm Pacific (depending on DST). Confirmed live: this
     crossed a week boundary mid-game during week 1's Monday Night Football
-    (UTC already read Tuesday while it was still Monday evening Pacific),
-    so the cron queried MFL for week 2 (pregame, all-zero) instead of the
-    real in-progress week 1, diffed that against Bubble's real nonzero
-    scores, and mass-patched every live player down to 0 every ~3 min until
-    fixed. Any evening game can hit this UTC/Pacific mismatch, but only the
-    Monday-boundary day (Tue-anchored weeks: Mon is days_since_start % 7 ==
-    6) actually flips the *week number* wrong — other days just shift
-    days_since_start within the same week, which is harmless."""
-    today = today or datetime.now(_PACIFIC).date()
-    days_since_start = (today - SEASON_WEEK_1_START).days
-    if days_since_start < 0:
+    under the old Tuesday-midnight turnover (UTC already read Tuesday while
+    it was still Monday evening Pacific), so the cron queried MFL for week
+    2 (pregame, all-zero) instead of the real in-progress week 1, diffed
+    that against Bubble's real nonzero scores, and mass-patched every live
+    player down to 0 every ~3 min until fixed. Moving the turnover to
+    Wednesday noon (see week_turnover()) also widens this safety margin
+    considerably, but the Pacific-vs-UTC computation still matters on its
+    own merits."""
+    now = now or datetime.now(PACIFIC)
+    first_turnover = week_turnover(1)
+    if now < first_turnover:
         return None
-    return days_since_start // 7 + 1
+    weeks_elapsed = (now - first_turnover) // timedelta(days=7)
+    return weeks_elapsed + 1
 
 
 def _chunks(items: list, size: int):
