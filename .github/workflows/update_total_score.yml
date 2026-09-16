@@ -1,0 +1,33 @@
+name: Update total score
+
+# Runs Tuesday mornings, well after Monday Night Football ends (10:00pm
+# Pacific) and well before the Wednesday-noon-Pacific week turnover (see
+# live_poll.week_turnover()). GitHub Actions cron is UTC-only and can't
+# express "6am Pacific" directly, so — same fix live_poll.yml uses for its
+# own schedule — two cron lines cover both DST offsets:
+#   - 13:00 UTC = 6:00am PDT (weeks 1-7, before Nov 1 DST change)
+#   - 14:00 UTC = 6:00am PST (week 8 onward)
+# Whichever one doesn't match Pacific 6am for a given week is a no-op: the
+# underlying Bubble workflow (update_total_score_for_matchup_after_matchup_ends)
+# is gated on Matchup.totalScoreApplied, so an extra/early/duplicate trigger
+# just finds nothing pending and does nothing — see update_total_score.py.
+on:
+  schedule:
+    - cron: '0 13 * * 2'
+    - cron: '0 14 * * 2'
+  workflow_dispatch:
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - run: python -m hotroute.update_total_score --live
+        env:
+          PYTHONPATH: src
+          BUBBLE_APP_URL: ${{ secrets.BUBBLE_APP_URL }}
+          BUBBLE_API_TOKEN: ${{ secrets.BUBBLE_API_TOKEN }}
