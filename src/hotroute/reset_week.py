@@ -82,20 +82,28 @@ def run(week: int, live: bool, limit: int | None, now: datetime | None = None) -
 
     to_append = buckets["ok"]
 
+    week_field = f"week_{week}_score"
+
     if not live:
-        print(f"\ndry run only — would append this_week_score into list_weekly_scores for {len(to_append)} players")
+        print(f"\ndry run only — would write this_week_score into list_weekly_scores, {week_field}, and total_score for {len(to_append)} players")
         print("would then reset this_week_score to 0 for all players and cascade via", SYNC_WORKFLOW)
         print("pass --live to actually do it")
         return
 
     if to_append:
-        print(f"\nappending this_week_score into list_weekly_scores for {len(to_append)} players...")
+        print(f"\nwriting this_week_score into list_weekly_scores, {week_field}, and total_score for {len(to_append)} players...")
         for p in to_append:
-            new_list = (p.get("list_weekly_scores") or []) + [p.get("this_week_score") or 0]
-            bubble.patch("NFLPlayer", p["_id"], {"list_weekly_scores": new_list})
-        print(f"appended for {len(to_append)} players")
+            score = p.get("this_week_score") or 0
+            new_list = (p.get("list_weekly_scores") or []) + [score]
+            new_total = (p.get("total_score") or 0) + score
+            bubble.patch(
+                "NFLPlayer",
+                p["_id"],
+                {"list_weekly_scores": new_list, week_field: score, "total_score": new_total},
+            )
+        print(f"updated {len(to_append)} players")
     else:
-        print("\nno players need an append this week — already up to date")
+        print("\nno players need an update this week — already up to date")
 
     # PATCH every player, not just currently-nonzero ones: a player whose
     # this_week_score has never been set (still Bubble-empty/None, not a
@@ -121,9 +129,10 @@ def run(week: int, live: bool, limit: int | None, now: datetime | None = None) -
 def main() -> None:
     parser = argparse.ArgumentParser(
         description=(
-            "Close out an NFL week: append this_week_score into list_weekly_scores for "
-            "every NFLPlayer directly via the Data API, then reset this_week_score to 0 "
-            "and cascade to TeamPlayer. Manual/on-demand only — no cron runs this."
+            "Close out an NFL week: write this_week_score into list_weekly_scores, "
+            "week_<N>_score, and total_score for every NFLPlayer directly via the Data "
+            "API, then reset this_week_score to 0 and cascade to TeamPlayer. "
+            "Manual/on-demand only — no cron runs this."
         )
     )
     parser.add_argument("--week", type=int, required=True, help="the NFL week being closed out")
