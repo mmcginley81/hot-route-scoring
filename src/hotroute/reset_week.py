@@ -5,7 +5,7 @@ from zoneinfo import ZoneInfo
 
 from .bubble_client import BubbleClient
 from .config import Config
-from .live_poll import SEASON_WEEK_1_START
+from .live_poll import SEASON_WEEK_1_START, current_nfl_week
 
 # Fans a value out to every TeamPlayer.thisWeekScore by copying from each
 # one's linked NFLPlayer.this_week_score — same workflow Track A uses to
@@ -126,16 +126,34 @@ def run(week: int, live: bool, limit: int | None, now: datetime | None = None) -
     print("(runs async in Bubble — allow a few seconds before verifying)")
 
 
+def default_close_out_week(now: datetime | None = None) -> int | None:
+    """The week to close out when --week isn't given: the week that just
+    ended, i.e. one behind whatever current_nfl_week() reports *after* this
+    week's turnover has already happened (which is when the cron fires —
+    see reset_week.yml's Wednesday-afternoon schedule, safely after the
+    Wednesday-noon turnover boundary). Returns None if there's no completed
+    week yet to close out (preseason, or still in week 1)."""
+    current = current_nfl_week(now)
+    if current is None or current <= 1:
+        return None
+    return current - 1
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description=(
             "Close out an NFL week: write this_week_score into list_weekly_scores, "
             "week_<N>_score, and total_score for every NFLPlayer directly via the Data "
-            "API, then reset this_week_score to 0 and cascade to TeamPlayer. "
-            "Manual/on-demand only — no cron runs this."
+            "API, then reset this_week_score to 0 and cascade to TeamPlayer."
         )
     )
-    parser.add_argument("--week", type=int, required=True, help="the NFL week being closed out")
+    parser.add_argument(
+        "--week",
+        type=int,
+        default=None,
+        help="the NFL week being closed out — defaults to the week that just ended, "
+             "auto-computed from today's date (for the scheduled cron run)",
+    )
     parser.add_argument(
         "--live",
         action="store_true",
@@ -149,7 +167,14 @@ def main() -> None:
              "Does not affect the append step, which always covers every eligible player.",
     )
     args = parser.parse_args()
-    run(args.week, args.live, args.limit)
+    if args.week is not None:
+        week = args.week
+    else:
+        week = default_close_out_week()
+        if week is None:
+            print("no completed week to close out yet (season hasn't started, or we're still in week 1) — pass --week explicitly if this is wrong")
+            return
+    run(week, args.live, args.limit)
 
 
 if __name__ == "__main__":

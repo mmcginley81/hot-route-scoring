@@ -1,10 +1,16 @@
 name: Update matchup status
 
-# On-demand only, same as reset_week.yml — nothing schedules this yet.
-# Trigger manually from the Actions tab shortly after each week's
-# Wednesday-noon-Pacific turnover (see live_poll.week_turnover()) so
-# Matchup.matchup_status flips upcoming -> live -> completed on time.
+# Runs 15 min after reset_week.yml's own Wednesday-afternoon-Pacific
+# schedule — no real dependency between the two (this only touches
+# Matchup, reset_week.py only touches NFLPlayer/TeamPlayer), the stagger
+# is just to keep their runs from overlapping. Same DST-safe two-cron-line
+# pattern as reset_week.yml:
+#   - 20:15 UTC = 1:15pm PDT (weeks 1-7, before Nov 1 DST change)
+#   - 21:15 UTC = 1:15pm PST (week 8 onward)
 on:
+  schedule:
+    - cron: '15 20 * * 3'
+    - cron: '15 21 * * 3'
   workflow_dispatch:
 
 jobs:

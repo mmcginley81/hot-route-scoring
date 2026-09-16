@@ -1,14 +1,25 @@
 name: Reset weekly scores
 
-# On-demand only, by design — this zeros every player's this_week_score
-# league-wide, so it should never fire unattended. Trigger manually from
-# the Actions tab right before a new NFL week's games start.
+# Runs Wednesday afternoon Pacific, safely after the Wednesday-noon-Pacific
+# week turnover (see live_poll.week_turnover()) so reset_week.py's own
+# auto-compute (current week - 1) lands on the week that just ended.
+# GitHub Actions cron is UTC-only and can't express "1pm Pacific" directly,
+# so — same fix live_poll.yml/update_total_score.yml use for their own
+# schedules — two cron lines cover both DST offsets:
+#   - 20:00 UTC = 1:00pm PDT (weeks 1-7, before Nov 1 DST change)
+#   - 21:00 UTC = 1:00pm PST (week 8 onward)
+# Whichever one doesn't match Pacific 1pm for a given week is a no-op:
+# reset_week.py's classify_players() just finds nothing left to append for
+# an already-closed-out week.
 on:
+  schedule:
+    - cron: '0 20 * * 3'
+    - cron: '0 21 * * 3'
   workflow_dispatch:
     inputs:
       week:
-        description: "the NFL week being closed out (required)"
-        required: true
+        description: "the NFL week to close out (defaults to auto-computed from today's date if left blank)"
+        required: false
 
 jobs:
   reset:
@@ -19,7 +30,7 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -r requirements.txt
-      - run: python -m hotroute.reset_week --live --week ${{ github.event.inputs.week }}
+      - run: python -m hotroute.reset_week --live ${{ github.event.inputs.week && format('--week {0}', github.event.inputs.week) || '' }}
         env:
           PYTHONPATH: src
           BUBBLE_APP_URL: ${{ secrets.BUBBLE_APP_URL }}
