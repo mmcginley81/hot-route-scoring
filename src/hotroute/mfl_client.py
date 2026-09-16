@@ -29,6 +29,8 @@ def normalize_mfl_id(raw) -> str:
 
 class MFLClient:
     def __init__(self, config: Config):
+        if not config.mfl_league_id:
+            raise RuntimeError("MFL_LEAGUE_ID must be set in .env to use MFLClient")
         self._config = config
         self._league_id = config.mfl_league_id
         self._host = config.mfl_host

@@ -5,6 +5,10 @@ name: Reset weekly scores
 # the Actions tab right before a new NFL week's games start.
 on:
   workflow_dispatch:
+    inputs:
+      week:
+        description: "the NFL week being closed out (required)"
+        required: true
 
 jobs:
   reset:
@@ -15,7 +19,7 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -r requirements.txt
-      - run: python -m hotroute.reset_week --live
+      - run: python -m hotroute.reset_week --live --week ${{ github.event.inputs.week }}
         env:
           PYTHONPATH: src
           BUBBLE_APP_URL: ${{ secrets.BUBBLE_APP_URL }}

@@ -6,16 +6,9 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
-def _require(name: str) -> str:
-    value = os.environ.get(name)
-    if not value:
-        raise RuntimeError(f"missing required env var: {name}")
-    return value
-
-
 @dataclass(frozen=True)
 class Config:
-    mfl_league_id: str
+    mfl_league_id: str | None
     mfl_year: str
     mfl_host: str
     mfl_player_id_csv: str
@@ -30,7 +23,11 @@ class Config:
         # here — BubbleClient checks for them itself when it's actually used.
         bubble_app_url = os.environ.get("BUBBLE_APP_URL")
         return cls(
-            mfl_league_id=_require("MFL_LEAGUE_ID"),
+            # Only needed by MFLClient, so not required here — scripts that
+            # never touch MFL (reset_week.py, update_matchup_status.py, ...)
+            # shouldn't need this secret set at all. MFLClient checks for it
+            # itself when it's actually instantiated.
+            mfl_league_id=os.environ.get("MFL_LEAGUE_ID"),
             mfl_year=os.environ.get("MFL_YEAR", "2026"),
             mfl_host=os.environ.get("MFL_HOST", "api.myfantasyleague.com"),
             mfl_player_id_csv=os.environ.get(
